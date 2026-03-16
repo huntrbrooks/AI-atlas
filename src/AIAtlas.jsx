@@ -54,6 +54,25 @@ function ToolCard({ tool, index }) {
         </div>
         <div className="tool-content">
           <div className="tool-meta">
+            {tool.rank && (
+              <span
+                className="tool-rank-badge"
+                style={{
+                  background: tool.rank === 1 ? 'linear-gradient(135deg, #c9a96e, #a07e45)' :
+                              tool.rank === 2 ? 'linear-gradient(135deg, #94a3b8, #64748b)' :
+                              'linear-gradient(135deg, #b45309, #92400e)',
+                  color: '#fff',
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  borderRadius: '6px',
+                  padding: '2px 8px',
+                  letterSpacing: '0.04em',
+                }}
+              >
+                #{tool.rank}
+              </span>
+            )}
             <span className="tool-name">{tool.name}</span>
             {tool.model && (
               <span
@@ -71,6 +90,18 @@ function ToolCard({ tool, index }) {
               {tool.free ? '✓ Free tier' : '$ Paid'}
             </span>
           </div>
+          {tool.why_best && (
+            <div style={{
+              fontSize: '13px',
+              color: tool.rank === 1 ? '#c9a96e' : '#9d9b96',
+              fontStyle: 'italic',
+              marginBottom: '4px',
+              fontFamily: "'Crimson Text', serif",
+              lineHeight: 1.5,
+            }}>
+              {tool.rank === 1 ? '★ ' : ''}{tool.why_best}
+            </div>
+          )}
           <p className="tool-description">{tool.description}</p>
           {tool.steps && (
             <div className="tool-steps">
