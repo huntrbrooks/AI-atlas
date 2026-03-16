@@ -1,0 +1,18 @@
+export const CATEGORIES = [
+  { id: 'photo', emoji: '🖼️', label: 'Photo & Images', prompt: 'editing or enhancing photos, removing backgrounds, creating AI images, or image generation' },
+  { id: 'coding', emoji: '💻', label: 'Coding & Apps', prompt: 'building an app, writing code, debugging software, or creating a website' },
+  { id: 'video', emoji: '🎬', label: 'Video Creation', prompt: 'creating, editing, or generating video content, short clips, or animations' },
+  { id: 'writing', emoji: '✍️', label: 'Writing & Content', prompt: 'writing blog posts, emails, essays, scripts, social media content, or marketing copy' },
+  { id: 'music', emoji: '🎵', label: 'Music & Audio', prompt: 'generating music, creating sound effects, cloning voice, or audio editing' },
+  { id: 'research', emoji: '🔬', label: 'Research & Learning', prompt: 'researching a topic, summarising documents, fact-checking, or learning something new' },
+  { id: 'business', emoji: '📊', label: 'Business & Productivity', prompt: 'automating tasks, building spreadsheets, creating presentations, or managing workflows' },
+  { id: 'design', emoji: '🎨', label: 'Design & Branding', prompt: 'creating graphic designs, logos, UI mockups, or 3D models and renders' },
+  { id: 'legal', emoji: '⚖️', label: 'Legal & Compliance', prompt: 'reviewing contracts, legal research, understanding regulations, or drafting legal documents' },
+  { id: 'companion', emoji: '💬', label: 'AI Companions', prompt: 'conversational AI, emotional support, storytelling, language practice, or personal coaching' },
+  { id: 'marketing', emoji: '📣', label: 'Marketing & Social', prompt: 'social media management, ad creation, SEO, influencer marketing, or email campaigns' },
+  { id: 'education', emoji: '🎓', label: 'Education & Tutoring', prompt: 'tutoring, course creation, study aids, exam preparation, or academic writing' },
+  { id: 'health', emoji: '🏥', label: 'Health & Wellness', prompt: 'fitness planning, nutrition tracking, mental health support, or medical information' },
+  { id: 'finance', emoji: '💰', label: 'Finance & Accounting', prompt: 'bookkeeping, tax preparation, financial analysis, budgeting, or invoicing' },
+  { id: 'data', emoji: '📈', label: 'Data & Analytics', prompt: 'data analysis, visualisation, dashboards, machine learning, or business intelligence' },
+  { id: 'translation', emoji: '🌍', label: 'Translation & Languages', prompt: 'translating text, learning languages, localisation, or multilingual content creation' },
+];

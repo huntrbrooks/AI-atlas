@@ -1,148 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { KNOWLEDGE_BASE, SUB_CATEGORIES, FALLBACK_RESULT } from './knowledgeBase';
+import { CATEGORIES } from './domain/categories';
+import {
+  findBestKnowledgeBaseMatch,
+  getParentCategoryId,
+  resolveKnowledgeBaseKey,
+} from './domain/recommendationEngine';
+import ToolCard from './components/ToolCard';
+import Spinner from './components/Spinner';
 import {
   getCache, setCache, getCacheAge, setCacheRefreshTime,
   getHistory, addToHistory, clearHistory,
   fetchFromAPI, formatDate, timeAgo, cacheKey,
 } from './utils';
-
-// ============================================
-// Categories
-// ============================================
-
-const CATEGORIES = [
-  { id: 'photo', emoji: '🖼️', label: 'Photo Editing', prompt: 'editing or enhancing photos, removing backgrounds, creating AI images, or image generation' },
-  { id: 'coding', emoji: '💻', label: 'Coding & Apps', prompt: 'building an app, writing code, debugging software, or creating a website' },
-  { id: 'video', emoji: '🎬', label: 'Video Creation', prompt: 'creating, editing, or generating video content, short clips, or animations' },
-  { id: 'writing', emoji: '✍️', label: 'Writing & Content', prompt: 'writing blog posts, emails, essays, scripts, social media content, or marketing copy' },
-  { id: 'music', emoji: '🎵', label: 'Music & Audio', prompt: 'generating music, creating sound effects, cloning voice, or audio editing' },
-  { id: 'research', emoji: '🔬', label: 'Research & Learning', prompt: 'researching a topic, summarising documents, fact-checking, or learning something new' },
-  { id: 'business', emoji: '📊', label: 'Business & Productivity', prompt: 'automating tasks, building spreadsheets, creating presentations, or managing workflows' },
-  { id: 'design', emoji: '🎨', label: 'Design & 3D', prompt: 'creating graphic designs, logos, UI mockups, or 3D models and renders' },
-];
-
-// ============================================
-// ToolCard Component
-// ============================================
-
-function ToolCard({ tool, index }) {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setVisible(true), index * 140);
-    return () => clearTimeout(t);
-  }, [index]);
-
-  return (
-    <div
-      className="tool-card"
-      style={{
-        opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(20px)',
-        transition: `all 0.45s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.05}s`,
-        '--tool-color': tool.color,
-      }}
-    >
-      <div className="tool-card-header">
-        <div
-          className="tool-icon"
-          style={{
-            background: `linear-gradient(135deg, ${tool.color}28, ${tool.color}0a)`,
-            border: `1px solid ${tool.color}40`,
-          }}
-        >
-          {tool.emoji}
-        </div>
-        <div className="tool-content">
-          <div className="tool-meta">
-            {tool.rank && (
-              <span
-                className="tool-rank-badge"
-                style={{
-                  background: tool.rank === 1 ? 'linear-gradient(135deg, #c9a96e, #a07e45)' :
-                              tool.rank === 2 ? 'linear-gradient(135deg, #94a3b8, #64748b)' :
-                              'linear-gradient(135deg, #b45309, #92400e)',
-                  color: '#fff',
-                  fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  borderRadius: '6px',
-                  padding: '2px 8px',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                #{tool.rank}
-              </span>
-            )}
-            <span className="tool-name">{tool.name}</span>
-            {tool.model && (
-              <span
-                className="tool-model-badge"
-                style={{
-                  background: `${tool.color}18`,
-                  color: tool.color,
-                  border: `1px solid ${tool.color}35`,
-                }}
-              >
-                {tool.model}
-              </span>
-            )}
-            <span className={`tool-free-badge ${tool.free ? 'free' : 'paid'}`}>
-              {tool.free ? '✓ Free tier' : '$ Paid'}
-            </span>
-          </div>
-          {tool.why_best && (
-            <div style={{
-              fontSize: '13px',
-              color: tool.rank === 1 ? '#c9a96e' : '#9d9b96',
-              fontStyle: 'italic',
-              marginBottom: '4px',
-              fontFamily: "'Crimson Text', serif",
-              lineHeight: 1.5,
-            }}>
-              {tool.rank === 1 ? '★ ' : ''}{tool.why_best}
-            </div>
-          )}
-          <p className="tool-description">{tool.description}</p>
-          {tool.steps && (
-            <div className="tool-steps">
-              <div className="tool-steps-label">How to start</div>
-              {tool.steps.map((s, i) => (
-                <div key={i} className="tool-step">
-                  <span className="tool-step-num" style={{ color: tool.color }}>{i + 1}.</span>
-                  <span>{s}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {tool.url && (
-            <a
-              href={tool.url}
-              target="_blank"
-              rel="noreferrer"
-              className="tool-link"
-              style={{ color: tool.color }}
-            >
-              → {tool.url.replace('https://', '').replace('www.', '')}
-            </a>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================
-// Spinner Component
-// ============================================
-
-function Spinner() {
-  return (
-    <div className="spinner-container">
-      <div className="spinner-ring" />
-      <span className="spinner-text">consulting the atlas…</span>
-    </div>
-  );
-}
 
 // ============================================
 // Main AIAtlas Component
@@ -170,33 +40,41 @@ export default function AIAtlas() {
     return () => clearInterval(interval);
   }, []);
 
+  const appendHistory = useCallback((goal, categoryId) => {
+    const updated = addToHistory(goal, categoryId);
+    setHistory(updated);
+  }, []);
+
   // Core search function
-  const handleSearch = useCallback(async (goal, catId = null) => {
+  const handleSearch = useCallback(async (goal, categoryId = null) => {
     if (!goal.trim()) return;
+
     setLoading(true);
     setError(null);
     setResult(null);
 
     // 1. Check cache
-    const key = cacheKey(catId || goal);
-    const cached = getCache(key);
+    const queryKey = cacheKey(categoryId || goal);
+    const cached = getCache(queryKey);
     if (cached) {
       setResult(cached);
       setLoading(false);
-      const updated = addToHistory(goal, catId);
-      setHistory(updated);
+      appendHistory(goal, categoryId);
       return;
     }
 
     // 2. Check pre-built knowledge base
-    const kbKey = catId || key;
-    if (KNOWLEDGE_BASE[kbKey]) {
-      const kbResult = KNOWLEDGE_BASE[kbKey];
+    const knowledgeBaseKey = resolveKnowledgeBaseKey({
+      categoryId,
+      queryKey,
+      knowledgeBase: KNOWLEDGE_BASE,
+    });
+    if (knowledgeBaseKey) {
+      const kbResult = KNOWLEDGE_BASE[knowledgeBaseKey];
       setResult(kbResult);
-      setCache(key, kbResult);
+      setCache(queryKey, kbResult);
       setLoading(false);
-      const updated = addToHistory(goal, catId);
-      setHistory(updated);
+      appendHistory(goal, categoryId);
       return;
     }
 
@@ -204,65 +82,36 @@ export default function AIAtlas() {
     try {
       const data = await fetchFromAPI(goal);
       setResult(data);
-      setCache(key, data);
+      setCache(queryKey, data);
     } catch {
       // 4. Fallback to knowledge base or generic result
-      const fallback = findBestMatch(goal);
+      const fallback = findBestKnowledgeBaseMatch(goal, KNOWLEDGE_BASE);
       if (fallback) {
         setResult(fallback);
-        setCache(key, fallback);
+        setCache(queryKey, fallback);
       } else {
         setResult(FALLBACK_RESULT);
       }
     }
 
     setLoading(false);
-    const updated = addToHistory(goal, catId);
-    setHistory(updated);
-  }, []);
-
-  // Find best matching knowledge base entry for a query
-  function findBestMatch(query) {
-    const q = query.toLowerCase();
-    const keywords = {
-      photo: ['photo', 'image', 'picture', 'edit', 'background', 'retouch'],
-      coding: ['code', 'coding', 'app', 'website', 'program', 'develop', 'build', 'debug', 'software'],
-      video: ['video', 'clip', 'film', 'animation', 'movie', 'edit video'],
-      writing: ['write', 'writing', 'blog', 'article', 'essay', 'content', 'copy', 'email', 'script'],
-      music: ['music', 'song', 'audio', 'sound', 'voice', 'beat', 'track'],
-      research: ['research', 'learn', 'study', 'summarize', 'summarise', 'search', 'fact'],
-      business: ['business', 'automate', 'spreadsheet', 'presentation', 'workflow', 'productivity'],
-      design: ['design', 'logo', 'graphic', 'ui', 'mockup', '3d', 'model'],
-    };
-
-    let bestCategory = null;
-    let bestScore = 0;
-
-    for (const [cat, words] of Object.entries(keywords)) {
-      const score = words.filter(w => q.includes(w)).length;
-      if (score > bestScore) {
-        bestScore = score;
-        bestCategory = cat;
-      }
-    }
-
-    return bestCategory ? KNOWLEDGE_BASE[bestCategory] || null : null;
-  }
+    appendHistory(goal, categoryId);
+  }, [appendHistory]);
 
   // Category click handler
-  const handleCategory = (cat) => {
-    setActiveCategory(cat.id);
+  const handleCategory = (category) => {
+    setActiveCategory(category.id);
     setActiveSubCategory(null);
-    setQuery(cat.label);
+    setQuery(category.label);
 
     // If this category has sub-categories, show them instead of searching immediately
-    if (SUB_CATEGORIES[cat.id]) {
+    if (SUB_CATEGORIES[category.id]) {
       setResult(null);
       setError(null);
       return;
     }
 
-    handleSearch(cat.prompt, cat.id);
+    handleSearch(category.prompt, category.id);
   };
 
   // Sub-category click handler
@@ -284,7 +133,7 @@ export default function AIAtlas() {
     setQuery(item.query);
     setShowHistory(false);
     if (item.categoryId) {
-      setActiveCategory(item.categoryId.split('_')[0]);
+      setActiveCategory(getParentCategoryId(item.categoryId));
       setActiveSubCategory(item.categoryId.includes('_') ? item.categoryId : null);
       handleSearch(item.query, item.categoryId);
     } else {

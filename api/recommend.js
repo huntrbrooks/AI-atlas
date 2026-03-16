@@ -1,32 +1,5 @@
-import { randomUUID } from 'crypto';
-import { createServer } from 'http';
-import { readFileSync, existsSync } from 'fs';
-import { readFile } from 'fs/promises';
-import { join, dirname, resolve, sep } from 'path';
-import { fileURLToPath } from 'url';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// Load .env file manually (no dotenv dependency)
-function loadEnv() {
-  const envPath = join(__dirname, '.env');
-  if (!existsSync(envPath)) return;
-
-  const lines = readFileSync(envPath, 'utf-8').split('\n');
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eqIndex = trimmed.indexOf('=');
-    if (eqIndex <= 0) continue;
-
-    const key = trimmed.slice(0, eqIndex).trim();
-    const val = trimmed.slice(eqIndex + 1).trim().replace(/^["']|["']$/g, '');
-    process.env[key] = val;
-  }
-}
-
-loadEnv();
 
 function getIntEnv(name, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const raw = process.env[name];
@@ -35,16 +8,12 @@ function getIntEnv(name, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   return Math.min(Math.max(value, min), max);
 }
 
-const PORT = getIntEnv('PORT', 3001, 1, 65535);
 const REQUEST_TIMEOUT_MS = getIntEnv('REQUEST_TIMEOUT_MS', 25_000, 1_000, 120_000);
 const RATE_LIMIT_WINDOW_MS = getIntEnv('RATE_LIMIT_WINDOW_MS', 60_000, 1_000, 600_000);
 const RATE_LIMIT_MAX_REQUESTS = getIntEnv('RATE_LIMIT_MAX_REQUESTS', 40, 1, 500);
 const MAX_BODY_BYTES = getIntEnv('MAX_BODY_BYTES', 16 * 1024, 1_024, 5 * 1024 * 1024);
 const ANTHROPIC_MAX_TOKENS = getIntEnv('ANTHROPIC_MAX_TOKENS', 2500, 256, 8000);
-const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
-const STATIC_DIR = process.env.STATIC_DIR ? join(process.env.STATIC_DIR) : join(__dirname, 'dist');
-const STATIC_ROOT = resolve(STATIC_DIR);
-const STATIC_INDEX_PATH = resolve(STATIC_ROOT, 'index.html');
+const MAX_BODY_KB = Math.max(1, Math.ceil(MAX_BODY_BYTES / 1024));
 
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const ALLOWED_ORIGINS = new Set(
@@ -126,27 +95,13 @@ class HttpError extends Error {
 }
 
 const rateLimitStore = new Map();
-const CONTENT_TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.mjs': 'application/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.ico': 'image/x-icon',
-  '.webp': 'image/webp',
-  '.txt': 'text/plain; charset=utf-8',
-};
 
 function getClientIp(req) {
   const forwardedFor = req.headers['x-forwarded-for'];
-  if (TRUST_PROXY && typeof forwardedFor === 'string' && forwardedFor.length > 0) {
+  if (typeof forwardedFor === 'string' && forwardedFor.length > 0) {
     return forwardedFor.split(',')[0].trim();
   }
-  return req.socket.remoteAddress || 'unknown';
+  return req.socket?.remoteAddress || 'unknown';
 }
 
 function checkRateLimit(ip) {
@@ -187,98 +142,34 @@ function applyCors(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
-function writeJson(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-  res.end(JSON.stringify(body));
-}
-
-function getContentType(filePath) {
-  const dotIndex = filePath.lastIndexOf('.');
-  if (dotIndex === -1) return 'application/octet-stream';
-  const ext = filePath.slice(dotIndex).toLowerCase();
-  return CONTENT_TYPES[ext] || 'application/octet-stream';
-}
-
-function canServeStatic() {
-  return existsSync(STATIC_INDEX_PATH);
-}
-
-function isHtmlRequest(req) {
-  const accept = req.headers.accept ?? '';
-  return String(accept).includes('text/html');
-}
-
-async function tryServeStatic(req, res, pathname) {
-  if (!canServeStatic()) return false;
-  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
-
-  const cleanPath = pathname.replace(/^\/+/, '');
-  let filePath = cleanPath ? resolve(STATIC_ROOT, cleanPath) : STATIC_INDEX_PATH;
-
-  if (!existsSync(filePath) && isHtmlRequest(req)) {
-    filePath = STATIC_INDEX_PATH;
-  }
-
-  const isWithinStaticRoot = filePath === STATIC_ROOT || filePath.startsWith(`${STATIC_ROOT}${sep}`);
-  if (!isWithinStaticRoot) return false;
-
-  if (!existsSync(filePath)) return false;
-
-  try {
-    const body = await readFile(filePath);
-    const isIndexFile = filePath === STATIC_INDEX_PATH;
-    res.writeHead(200, {
-      'Content-Type': getContentType(filePath),
-      'Cache-Control': isIndexFile ? 'no-cache' : 'public, max-age=31536000, immutable',
-    });
-    if (req.method === 'HEAD') {
-      res.end();
-      return true;
-    }
-    res.end(body);
-    return true;
-  } catch {
-    return false;
-  }
+function sendJson(res, status, body) {
+  return res.status(status).json(body);
 }
 
 function parseBody(req) {
-  return new Promise((resolve, reject) => {
-    const contentLength = Number.parseInt(req.headers['content-length'] ?? '', 10);
-    if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
-      reject(new HttpError(413, 'Request body too large', 'payload_too_large'));
-      return;
+  const contentLength = Number.parseInt(req.headers['content-length'] ?? '', 10);
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    throw new HttpError(413, 'Request body too large', 'payload_too_large');
+  }
+
+  const contentType = req.headers['content-type'] ?? '';
+  if (!String(contentType).toLowerCase().includes('application/json')) {
+    throw new HttpError(415, 'Content-Type must be application/json', 'unsupported_content_type');
+  }
+
+  if (typeof req.body === 'string') {
+    try {
+      return JSON.parse(req.body);
+    } catch {
+      throw new HttpError(400, 'Invalid JSON body', 'invalid_json');
     }
+  }
 
-    let totalBytes = 0;
-    const chunks = [];
+  if (req.body && typeof req.body === 'object') {
+    return req.body;
+  }
 
-    req.on('data', (chunk) => {
-      totalBytes += chunk.length;
-      if (totalBytes > MAX_BODY_BYTES) {
-        req.destroy();
-        reject(new HttpError(413, 'Request body too large', 'payload_too_large'));
-        return;
-      }
-      chunks.push(chunk);
-    });
-
-    req.on('end', () => {
-      try {
-        const raw = Buffer.concat(chunks).toString('utf8').trim();
-        if (!raw) throw new HttpError(400, 'Request body is required', 'body_required');
-        resolve(JSON.parse(raw));
-      } catch (err) {
-        if (err instanceof HttpError) {
-          reject(err);
-          return;
-        }
-        reject(new HttpError(400, 'Invalid JSON body', 'invalid_json'));
-      }
-    });
-
-    req.on('error', (err) => reject(err));
-  });
+  throw new HttpError(400, 'Request body is required', 'body_required');
 }
 
 function getTextBlock(contentBlocks) {
@@ -345,129 +236,73 @@ async function fetchRecommendations(goal, apiKey, signal) {
   return validated.data;
 }
 
-const server = createServer(async (req, res) => {
+export default async function handler(req, res) {
   const requestId = randomUUID();
   res.setHeader('X-Request-Id', requestId);
   applySecurityHeaders(res);
 
   try {
-    const parsedUrl = new URL(req.url || '/', 'http://localhost');
-    const pathname = parsedUrl.pathname;
+    applyCors(req, res);
 
     if (req.method === 'OPTIONS') {
-      if (pathname.startsWith('/api/')) {
-        applyCors(req, res);
-      }
-      res.writeHead(204);
-      return res.end();
+      return res.status(204).send('');
     }
 
-    if (req.method === 'GET' && pathname === '/healthz') {
-      return writeJson(res, 200, { status: 'ok' });
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', 'POST, OPTIONS');
+      return sendJson(res, 405, { error: 'Method not allowed' });
     }
 
-    if (pathname === '/api/recommend') {
-      applyCors(req, res);
-
-      if (req.method !== 'POST') {
-        res.setHeader('Allow', 'POST, OPTIONS');
-        return writeJson(res, 405, { error: 'Method not allowed' });
-      }
-
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-      if (!apiKey) {
-        return writeJson(res, 503, { error: 'Server not configured for AI recommendations' });
-      }
-
-      const ip = getClientIp(req);
-      const rateLimit = checkRateLimit(ip);
-      if (!rateLimit.allowed) {
-        res.setHeader('Retry-After', Math.ceil(rateLimit.retryAfterMs / 1000));
-        return writeJson(res, 429, { error: 'Rate limit exceeded. Please try again shortly.' });
-      }
-
-      const contentType = req.headers['content-type'] ?? '';
-      if (!String(contentType).toLowerCase().includes('application/json')) {
-        throw new HttpError(415, 'Content-Type must be application/json', 'unsupported_content_type');
-      }
-
-      const rawBody = await parseBody(req);
-      const parsedBody = recommendRequestSchema.safeParse(rawBody);
-      if (!parsedBody.success) {
-        throw new HttpError(400, 'Invalid request payload', 'invalid_payload');
-      }
-
-      const goal = parsedBody.data.goal.replace(/\s+/g, ' ').trim();
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-      let result;
-      try {
-        result = await fetchRecommendations(goal, apiKey, controller.signal);
-      } finally {
-        clearTimeout(timeout);
-      }
-
-      return writeJson(res, 200, result);
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return sendJson(res, 503, { error: 'Server not configured for AI recommendations' });
     }
 
-    if (pathname.startsWith('/api/')) {
-      return writeJson(res, 404, { error: 'Not found' });
+    const ip = getClientIp(req);
+    const rateLimit = checkRateLimit(ip);
+    if (!rateLimit.allowed) {
+      res.setHeader('Retry-After', Math.ceil(rateLimit.retryAfterMs / 1000));
+      return sendJson(res, 429, { error: 'Rate limit exceeded. Please try again shortly.' });
     }
 
-    const served = await tryServeStatic(req, res, pathname);
-    if (served) return;
+    const rawBody = parseBody(req);
+    const parsedBody = recommendRequestSchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      throw new HttpError(400, 'Invalid request payload', 'invalid_payload');
+    }
 
-    return writeJson(res, 404, { error: 'Not found' });
+    const goal = parsedBody.data.goal.replace(/\s+/g, ' ').trim();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    let result;
+    try {
+      result = await fetchRecommendations(goal, apiKey, controller.signal);
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    return sendJson(res, 200, result);
   } catch (err) {
     if (err?.name === 'AbortError') {
       console.error(`[${requestId}] upstream timeout after ${REQUEST_TIMEOUT_MS}ms`);
-      return writeJson(res, 504, { error: 'Recommendation request timed out. Please retry.' });
+      return sendJson(res, 504, { error: 'Recommendation request timed out. Please retry.' });
     }
 
     if (err instanceof HttpError) {
       console.error(`[${requestId}] ${err.code}: ${err.message}`);
-      return writeJson(res, err.status, { error: err.message });
+      return sendJson(res, err.status, { error: err.message });
     }
 
     console.error(`[${requestId}] internal_error`);
-    return writeJson(res, 500, { error: 'Internal server error' });
+    return sendJson(res, 500, { error: 'Internal server error' });
   }
-});
-
-server.listen(PORT, () => {
-  console.log('\n  🧭 AI Atlas API Server');
-  console.log('  ━━━━━━━━━━━━━━━━━━━━');
-  console.log(`  Running on http://localhost:${PORT}`);
-  console.log(`  Allowed origins: ${ALLOWED_ORIGINS.size} configured`);
-  console.log(`  API Key: ${process.env.ANTHROPIC_API_KEY ? '✓ Loaded' : '✗ Missing'}`);
-  console.log(`  Trust proxy: ${TRUST_PROXY ? 'enabled' : 'disabled'}`);
-  console.log(`  Rate limit: ${RATE_LIMIT_MAX_REQUESTS} req / ${Math.round(RATE_LIMIT_WINDOW_MS / 1000)}s`);
-  console.log(`  Static frontend: ${canServeStatic() ? `✓ ${STATIC_DIR}` : '✗ Build not found (run npm run build)'}`);
-  console.log(`  Timeout: ${REQUEST_TIMEOUT_MS}ms\n`);
-});
-
-const rateLimitCleanupInterval = setInterval(() => {
-  const now = Date.now();
-  for (const [ip, state] of rateLimitStore.entries()) {
-    if (now - state.windowStart > RATE_LIMIT_WINDOW_MS * 2) {
-      rateLimitStore.delete(ip);
-    }
-  }
-}, RATE_LIMIT_WINDOW_MS);
-rateLimitCleanupInterval.unref();
-
-function shutdown(signal) {
-  console.log(`\n  Received ${signal}, shutting down...`);
-  clearInterval(rateLimitCleanupInterval);
-  server.close(() => {
-    process.exit(0);
-  });
-
-  setTimeout(() => {
-    process.exit(1);
-  }, 10_000).unref();
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: `${MAX_BODY_KB}kb`,
+    },
+  },
+};
