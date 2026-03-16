@@ -30,6 +30,7 @@ export default function AIAtlas() {
   const [history, setHistory] = useState(() => getHistory());
   const [showHistory, setShowHistory] = useState(false);
   const inputRef = useRef(null);
+  const resultsRef = useRef(null);
 
   // Simulated cron: refresh knowledge base timestamp every 24h
   useEffect(() => {
@@ -45,6 +46,18 @@ export default function AIAtlas() {
     setHistory(updated);
   }, []);
 
+  const scrollToResults = useCallback(() => {
+    requestAnimationFrame(() => {
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!loading && (result || error)) {
+      scrollToResults();
+    }
+  }, [loading, result, error, scrollToResults]);
+
   // Core search function
   const handleSearch = useCallback(async (goal, categoryId = null) => {
     if (!goal.trim()) return;
@@ -52,6 +65,7 @@ export default function AIAtlas() {
     setLoading(true);
     setError(null);
     setResult(null);
+    scrollToResults();
 
     // 1. Check cache
     const queryKey = cacheKey(categoryId || goal);
@@ -99,7 +113,7 @@ export default function AIAtlas() {
 
     setLoading(false);
     appendHistory(goal, categoryId);
-  }, [appendHistory]);
+  }, [appendHistory, scrollToResults]);
 
   // Category click handler
   const handleCategory = (category) => {
@@ -283,6 +297,7 @@ export default function AIAtlas() {
         )}
 
         {/* Divider */}
+        <div ref={resultsRef} />
         <hr className="atlas-divider" />
 
         {/* Loading */}

@@ -102,3 +102,82 @@ test('Vercel API handler: method, CORS, and missing-config guardrails', async ()
     }
   }
 });
+
+test('Vercel API handler retries without web search after timeout', async () => {
+  const previousApiKey = process.env.ANTHROPIC_API_KEY;
+  const previousEnableWebSearch = process.env.ENABLE_WEB_SEARCH;
+  const originalFetch = global.fetch;
+  const fetchCalls = [];
+
+  process.env.ANTHROPIC_API_KEY = 'test-key';
+  process.env.ENABLE_WEB_SEARCH = 'true';
+
+  global.fetch = async (_url, init) => {
+    fetchCalls.push(init);
+
+    if (fetchCalls.length === 1) {
+      const err = new Error('aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+
+    return new Response(JSON.stringify({
+      content: [{
+        type: 'text',
+        text: JSON.stringify({
+          summary: 'Fallback request succeeded.',
+          tools: [{
+            name: 'CapCut',
+            emoji: '🎬',
+            color: '#6ee7f7',
+            model: null,
+            free: true,
+            rank: 1,
+            why_best: 'Fast and simple for beginners.',
+            description: 'Easy short-form video editing and templates.',
+            steps: ['Upload clips', 'Pick a template', 'Export'],
+            url: 'https://www.capcut.com',
+          }],
+        }),
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const req = createMockReq({
+      method: 'POST',
+      headers: {
+        origin: 'http://localhost:5173',
+        'content-type': 'application/json',
+      },
+      body: { goal: 'Make product reels quickly' },
+    });
+    const res = createMockRes();
+
+    await handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.getHeader('x-recommendation-mode'), 'fallback-no-web-search');
+    assert.equal(fetchCalls.length, 2);
+
+    const firstRequestBody = JSON.parse(fetchCalls[0].body);
+    const secondRequestBody = JSON.parse(fetchCalls[1].body);
+    assert.ok(Array.isArray(firstRequestBody.tools));
+    assert.equal(secondRequestBody.tools, undefined);
+  } finally {
+    global.fetch = originalFetch;
+    if (previousApiKey) {
+      process.env.ANTHROPIC_API_KEY = previousApiKey;
+    } else {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+    if (previousEnableWebSearch !== undefined) {
+      process.env.ENABLE_WEB_SEARCH = previousEnableWebSearch;
+    } else {
+      delete process.env.ENABLE_WEB_SEARCH;
+    }
+  }
+});

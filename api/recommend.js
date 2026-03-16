@@ -13,7 +13,11 @@ const RATE_LIMIT_WINDOW_MS = getIntEnv('RATE_LIMIT_WINDOW_MS', 60_000, 1_000, 60
 const RATE_LIMIT_MAX_REQUESTS = getIntEnv('RATE_LIMIT_MAX_REQUESTS', 40, 1, 500);
 const MAX_BODY_BYTES = getIntEnv('MAX_BODY_BYTES', 16 * 1024, 1_024, 5 * 1024 * 1024);
 const ANTHROPIC_MAX_TOKENS = getIntEnv('ANTHROPIC_MAX_TOKENS', 1200, 256, 1400);
-const ENABLE_WEB_SEARCH = process.env.ENABLE_WEB_SEARCH === 'true';
+const WEB_SEARCH_MAX_TOKENS = getIntEnv('WEB_SEARCH_MAX_TOKENS', 600, 256, 1000);
+const FALLBACK_MAX_TOKENS = getIntEnv('FALLBACK_MAX_TOKENS', 800, 256, 1200);
+const PRIMARY_SEARCH_TIMEOUT_MS = getIntEnv('PRIMARY_SEARCH_TIMEOUT_MS', 18_000, 2_000, 90_000);
+const FALLBACK_TIMEOUT_MS = getIntEnv('FALLBACK_TIMEOUT_MS', 12_000, 2_000, 60_000);
+const NON_SEARCH_TIMEOUT_MS = getIntEnv('NON_SEARCH_TIMEOUT_MS', 18_000, 2_000, 60_000);
 
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const ALLOWED_ORIGINS = new Set(
@@ -176,15 +180,31 @@ function getTextBlock(contentBlocks) {
   return typeof textBlock?.text === 'string' ? textBlock.text : null;
 }
 
-async function fetchRecommendations(goal, apiKey, signal) {
+function isWebSearchEnabled() {
+  return process.env.ENABLE_WEB_SEARCH === 'true';
+}
+
+function isRetriableWebSearchFailure(err) {
+  if (err?.name === 'AbortError') return true;
+  if (!(err instanceof HttpError)) return false;
+  return [
+    'upstream_error',
+    'invalid_upstream_json',
+    'invalid_upstream_payload',
+    'malformed_model_json',
+    'invalid_model_schema',
+  ].includes(err.code);
+}
+
+async function fetchRecommendations(goal, apiKey, signal, { useWebSearch, maxTokens }) {
   const requestBody = {
     model: 'claude-sonnet-4-20250514',
-    max_tokens: ANTHROPIC_MAX_TOKENS,
+    max_tokens: maxTokens,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: `My goal: ${goal}` }],
   };
 
-  if (ENABLE_WEB_SEARCH) {
+  if (useWebSearch) {
     requestBody.tools = [{
       type: 'web_search_20250305',
       name: 'web_search',
@@ -239,6 +259,16 @@ async function fetchRecommendations(goal, apiKey, signal) {
   return validated.data;
 }
 
+async function runFetchAttempt(goal, apiKey, options, timeoutMs) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchRecommendations(goal, apiKey, controller.signal, options);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export default async function handler(req, res) {
   const requestId = randomUUID();
   res.setHeader('X-Request-Id', requestId);
@@ -275,14 +305,36 @@ export default async function handler(req, res) {
     }
 
     const goal = parsedBody.data.goal.replace(/\s+/g, ' ').trim();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const deadline = Date.now() + REQUEST_TIMEOUT_MS;
+    const remainingTime = () => Math.max(0, deadline - Date.now());
 
     let result;
-    try {
-      result = await fetchRecommendations(goal, apiKey, controller.signal);
-    } finally {
-      clearTimeout(timeout);
+    if (isWebSearchEnabled()) {
+      const firstBudget = Math.min(PRIMARY_SEARCH_TIMEOUT_MS, remainingTime());
+      try {
+        result = await runFetchAttempt(goal, apiKey, {
+          useWebSearch: true,
+          maxTokens: Math.min(ANTHROPIC_MAX_TOKENS, WEB_SEARCH_MAX_TOKENS),
+        }, firstBudget);
+      } catch (err) {
+        if (!isRetriableWebSearchFailure(err)) throw err;
+
+        const secondBudget = Math.min(FALLBACK_TIMEOUT_MS, remainingTime());
+        if (secondBudget < 2_000) throw err;
+
+        console.warn(`[${requestId}] web_search_retry: retrying without web search`);
+        result = await runFetchAttempt(goal, apiKey, {
+          useWebSearch: false,
+          maxTokens: Math.min(ANTHROPIC_MAX_TOKENS, FALLBACK_MAX_TOKENS),
+        }, secondBudget);
+        res.setHeader('X-Recommendation-Mode', 'fallback-no-web-search');
+      }
+    } else {
+      const budget = Math.min(NON_SEARCH_TIMEOUT_MS, remainingTime());
+      result = await runFetchAttempt(goal, apiKey, {
+        useWebSearch: false,
+        maxTokens: ANTHROPIC_MAX_TOKENS,
+      }, budget);
     }
 
     return sendJson(res, 200, result);
