@@ -1,6 +1,6 @@
 // Utility functions: cache, history, and API helpers
 
-const CACHE_PREFIX = 'atlas_cache_';
+const CACHE_PREFIX = 'atlas_cache_v2_';
 const HISTORY_KEY = 'atlas_history';
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_HISTORY = 20;
