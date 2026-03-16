@@ -63,19 +63,21 @@ export default function AIAtlas() {
       return;
     }
 
-    // 2. Check pre-built knowledge base
-    const knowledgeBaseKey = resolveKnowledgeBaseKey({
-      categoryId,
-      queryKey,
-      knowledgeBase: KNOWLEDGE_BASE,
-    });
-    if (knowledgeBaseKey) {
-      const kbResult = KNOWLEDGE_BASE[knowledgeBaseKey];
-      setResult(kbResult);
-      setCache(queryKey, kbResult);
-      setLoading(false);
-      appendHistory(goal, categoryId);
-      return;
+    // 2. Category/sub-category picks can use prebuilt knowledge base directly.
+    if (categoryId) {
+      const knowledgeBaseKey = resolveKnowledgeBaseKey({
+        categoryId,
+        queryKey,
+        knowledgeBase: KNOWLEDGE_BASE,
+      });
+      if (knowledgeBaseKey) {
+        const kbResult = KNOWLEDGE_BASE[knowledgeBaseKey];
+        setResult(kbResult);
+        setCache(queryKey, kbResult);
+        setLoading(false);
+        appendHistory(goal, categoryId);
+        return;
+      }
     }
 
     // 3. Try live API
@@ -84,11 +86,12 @@ export default function AIAtlas() {
       setResult(data);
       setCache(queryKey, data);
     } catch {
+      setError('Live recommendations timed out. Showing fallback suggestions.');
+
       // 4. Fallback to knowledge base or generic result
       const fallback = findBestKnowledgeBaseMatch(goal, KNOWLEDGE_BASE);
       if (fallback) {
         setResult(fallback);
-        setCache(queryKey, fallback);
       } else {
         setResult(FALLBACK_RESULT);
       }
