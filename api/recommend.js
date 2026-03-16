@@ -12,7 +12,8 @@ const REQUEST_TIMEOUT_MS = getIntEnv('REQUEST_TIMEOUT_MS', 25_000, 1_000, 120_00
 const RATE_LIMIT_WINDOW_MS = getIntEnv('RATE_LIMIT_WINDOW_MS', 60_000, 1_000, 600_000);
 const RATE_LIMIT_MAX_REQUESTS = getIntEnv('RATE_LIMIT_MAX_REQUESTS', 40, 1, 500);
 const MAX_BODY_BYTES = getIntEnv('MAX_BODY_BYTES', 16 * 1024, 1_024, 5 * 1024 * 1024);
-const ANTHROPIC_MAX_TOKENS = getIntEnv('ANTHROPIC_MAX_TOKENS', 2500, 256, 8000);
+const ANTHROPIC_MAX_TOKENS = getIntEnv('ANTHROPIC_MAX_TOKENS', 1200, 256, 1400);
+const ENABLE_WEB_SEARCH = process.env.ENABLE_WEB_SEARCH === 'true';
 
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const ALLOWED_ORIGINS = new Set(
@@ -24,11 +25,9 @@ const ALLOWED_ORIGINS = new Set(
 
 const SYSTEM_PROMPT = `You are an expert AI tool advisor helping absolute beginners achieve specific goals. Your job is NOT to generically list AI tools — it is to deeply understand the user's EXACT goal, figure out the simplest way to achieve it, and then recommend the best tools RANKED from most optimal to least optimal.
 
-IMPORTANT: Use your web search tool to research the latest AI tools for the user's specific goal. Search for current pricing, features, and user reviews. This ensures recommendations are accurate and up-to-date.
-
 ## Your Process:
 1. UNDERSTAND the user's specific goal (e.g., "turn my book into an audiobook" means they need text-to-speech narration with natural voices, NOT music generation)
-2. SEARCH the web for the best current tools that solve this specific problem
+2. Select tools that best solve this specific problem and explain practical trade-offs
 3. EXPLAIN the simplest approach in plain English — what they need to do, step by step
 4. RANK tools from most optimal (best fit, easiest, best value) to least optimal
 
@@ -58,7 +57,7 @@ Respond with ONLY valid JSON — no markdown, no explanation outside the JSON:
 - Rank 2-4 tools as alternatives, explaining the trade-offs (e.g., "more voices but costs more", "free but lower quality")
 - Each tool's description and steps must be specific to the user's goal, not generic
 - The summary should read like friendly advice from a knowledgeable friend, not a product listing
-- Always verify URLs and current pricing via web search
+- Prefer official product URLs; if pricing is uncertain, say so briefly instead of guessing
 - Include 3-4 tools ordered from most to least optimal
 - Steps should be specific to the user's goal (e.g., for audiobooks: "Upload your manuscript text" not "Upload your content")
 - Colors: use vibrant, distinct hex colors — never repeat a color across tools`;
@@ -178,6 +177,21 @@ function getTextBlock(contentBlocks) {
 }
 
 async function fetchRecommendations(goal, apiKey, signal) {
+  const requestBody = {
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: ANTHROPIC_MAX_TOKENS,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: `My goal: ${goal}` }],
+  };
+
+  if (ENABLE_WEB_SEARCH) {
+    requestBody.tools = [{
+      type: 'web_search_20250305',
+      name: 'web_search',
+      max_uses: 2,
+    }];
+  }
+
   const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -185,17 +199,7 @@ async function fetchRecommendations(goal, apiKey, signal) {
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
     },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: ANTHROPIC_MAX_TOKENS,
-      system: SYSTEM_PROMPT,
-      tools: [{
-        type: 'web_search_20250305',
-        name: 'web_search',
-        max_uses: 5,
-      }],
-      messages: [{ role: 'user', content: `My goal: ${goal}` }],
-    }),
+    body: JSON.stringify(requestBody),
     signal,
   });
 

@@ -24,7 +24,8 @@ Beginner-friendly AI tool recommendation app with a React frontend and a hardene
 - `RATE_LIMIT_WINDOW_MS` (default: `60000`)
 - `RATE_LIMIT_MAX_REQUESTS` (default: `40`)
 - `MAX_BODY_BYTES` (default: `16384`)
-- `ANTHROPIC_MAX_TOKENS` (default: `2500`)
+- `ANTHROPIC_MAX_TOKENS` (default: `1200`, capped at `1400`)
+- `ENABLE_WEB_SEARCH` (default: `false`; enable only if you can tolerate slower responses)
 - `TRUST_PROXY` (`true` only when behind a trusted proxy/load balancer)
 - `STATIC_DIR` (optional override for built frontend directory, default `./dist`)
 
@@ -97,7 +98,8 @@ Set these in Vercel:
 - `RATE_LIMIT_WINDOW_MS=60000`
 - `RATE_LIMIT_MAX_REQUESTS=40`
 - `MAX_BODY_BYTES=16384`
-- `ANTHROPIC_MAX_TOKENS=2500`
+- `ANTHROPIC_MAX_TOKENS=1200`
+- `ENABLE_WEB_SEARCH=false`
 - `ALLOWED_ORIGINS`:
   - Production: `https://ai-atlas-eosin.vercel.app`
   - Preview: use the preview deployment URL for that environment
