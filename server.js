@@ -29,7 +29,9 @@ loadEnv();
 
 const SYSTEM_PROMPT = `You are an AI tool navigator for absolute beginners. Given a goal, recommend 2-4 specific AI tools.
 
-Respond with ONLY valid JSON — no markdown, no explanation outside the JSON:
+IMPORTANT: Use your web search tool to look up the latest AI tools, their current pricing, and available models/versions BEFORE responding. This ensures your recommendations are accurate and up-to-date.
+
+After searching, respond with ONLY valid JSON — no markdown, no explanation outside the JSON:
 {
   "summary": "1-2 sentences explaining the approach for a total beginner",
   "tools": [
@@ -47,13 +49,15 @@ Respond with ONLY valid JSON — no markdown, no explanation outside the JSON:
 }
 
 Rules:
+- ALWAYS search the web first to verify current tool availability, pricing, and latest model versions
 - Be specific about which model/version to use inside each tool
 - Prioritise tools with free tiers for beginners
 - For coding tasks: mention Cursor or VS Code + Claude claude-opus-4-6 or claude-sonnet-4-6
 - For photo/image tasks: mention Google Gemini with Imagen, Adobe Firefly, or Midjourney
 - For writing: mention Claude.ai, ChatGPT, or Notion AI
 - Colors: use vibrant, distinct hex colors like #6ee7f7, #f97316, #a78bfa, #34d399, #fb7185
-- Always include beginner-friendly steps (3 steps max)`;
+- Always include beginner-friendly steps (3 steps max)
+- Verify URLs are correct and currently accessible`;
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -97,8 +101,13 @@ const server = createServer(async (req, res) => {
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
-          max_tokens: 1200,
+          max_tokens: 16000,
           system: SYSTEM_PROMPT,
+          tools: [{
+            type: 'web_search_20250305',
+            name: 'web_search',
+            max_uses: 5,
+          }],
           messages: [{ role: 'user', content: `My goal: ${goal}` }],
         }),
       });
@@ -125,5 +134,6 @@ server.listen(PORT, () => {
   console.log(`\n  🧭 AI Atlas API Server`);
   console.log(`  ━━━━━━━━━━━━━━━━━━━━`);
   console.log(`  Running on http://localhost:${PORT}`);
+  console.log(`  Web Search: ✓ Enabled (Claude searches the web for up-to-date results)`);
   console.log(`  API Key: ${process.env.ANTHROPIC_API_KEY ? '✓ Loaded' : '✗ Missing — create .env file'}\n`);
 });
