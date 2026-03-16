@@ -13,7 +13,6 @@ const RATE_LIMIT_WINDOW_MS = getIntEnv('RATE_LIMIT_WINDOW_MS', 60_000, 1_000, 60
 const RATE_LIMIT_MAX_REQUESTS = getIntEnv('RATE_LIMIT_MAX_REQUESTS', 40, 1, 500);
 const MAX_BODY_BYTES = getIntEnv('MAX_BODY_BYTES', 16 * 1024, 1_024, 5 * 1024 * 1024);
 const ANTHROPIC_MAX_TOKENS = getIntEnv('ANTHROPIC_MAX_TOKENS', 2500, 256, 8000);
-const MAX_BODY_KB = Math.max(1, Math.ceil(MAX_BODY_BYTES / 1024));
 
 const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const ALLOWED_ORIGINS = new Set(
@@ -302,7 +301,7 @@ export default async function handler(req, res) {
 export const config = {
   api: {
     bodyParser: {
-      sizeLimit: `${MAX_BODY_KB}kb`,
+      sizeLimit: '16kb',
     },
   },
 };
