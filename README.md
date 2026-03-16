@@ -91,7 +91,7 @@ With `dist/` present, `server.js` serves both:
 This repo is now Vercel-ready with:
 
 - `api/recommend.js` as a serverless API function
-- `vercel.json` configured for Vite build output (`dist/`) and SPA fallback routing
+- `vercel.json` configured for Vite build output (`dist/`), SPA fallback routing, and `maxDuration: 60` for API
 
 ### Required Vercel Environment Variables
 
@@ -119,6 +119,7 @@ Notes:
 - Do **not** set `PORT` on Vercel.
 - If you add a custom domain later, append it to `ALLOWED_ORIGINS` as a comma-separated value.
 - When web-search is enabled, API now auto-retries once without web-search before returning an error.
+- If both upstream attempts stall, API returns a goal-specific emergency recommendation payload instead of timing out.
 
 ### Deploy Flow
 

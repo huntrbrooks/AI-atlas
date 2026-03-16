@@ -181,3 +181,49 @@ test('Vercel API handler retries without web search after timeout', async () => 
     }
   }
 });
+
+test('Vercel API handler returns emergency fallback when all upstream attempts fail', async () => {
+  const previousApiKey = process.env.ANTHROPIC_API_KEY;
+  const previousEnableWebSearch = process.env.ENABLE_WEB_SEARCH;
+  const originalFetch = global.fetch;
+
+  process.env.ANTHROPIC_API_KEY = 'test-key';
+  process.env.ENABLE_WEB_SEARCH = 'true';
+
+  global.fetch = async () => {
+    const err = new Error('aborted');
+    err.name = 'AbortError';
+    throw err;
+  };
+
+  try {
+    const req = createMockReq({
+      method: 'POST',
+      headers: {
+        origin: 'http://localhost:5173',
+        'content-type': 'application/json',
+      },
+      body: { goal: 'Create product photos for my store' },
+    });
+    const res = createMockRes();
+
+    await handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.getHeader('x-recommendation-mode'), 'emergency-local-fallback');
+    assert.equal(Array.isArray(res.payload.tools), true);
+    assert.equal(res.payload.tools.length >= 3, true);
+  } finally {
+    global.fetch = originalFetch;
+    if (previousApiKey) {
+      process.env.ANTHROPIC_API_KEY = previousApiKey;
+    } else {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+    if (previousEnableWebSearch !== undefined) {
+      process.env.ENABLE_WEB_SEARCH = previousEnableWebSearch;
+    } else {
+      delete process.env.ENABLE_WEB_SEARCH;
+    }
+  }
+});

@@ -306,6 +306,68 @@ function isRetriableWebSearchFailure(err) {
   ].includes(err.code);
 }
 
+const EMERGENCY_TOOLKITS = [
+  {
+    id: 'video',
+    keywords: ['video', 'youtube', 'tiktok', 'reel', 'shorts', 'edit', 'editing'],
+    summary: 'video content',
+    tools: [
+      { name: 'CapCut', emoji: '🎬', color: '#6ee7f7', model: null, free: true, why_best: 'Fast templates and exports for beginners.', description: 'Best all-around beginner editor for short-form social content with templates and auto-captions.', steps: ['Import clips', 'Apply a template', 'Add captions and export'], url: 'https://www.capcut.com' },
+      { name: 'Canva', emoji: '🧩', color: '#f97316', model: null, free: true, why_best: 'Great for branded overlays and simple edits.', description: 'Excellent for polished social videos, brand kits, and reusable layouts.', steps: ['Choose a video template', 'Swap in your footage', 'Export in social format'], url: 'https://www.canva.com' },
+      { name: 'Descript', emoji: '🎙️', color: '#a78bfa', model: null, free: false, why_best: 'Easy voice cleanup and subtitle workflow.', description: 'Useful when your videos need narration cleanup, text-based editing, and accurate captions.', steps: ['Upload your video', 'Edit by transcript', 'Polish audio and publish'], url: 'https://www.descript.com' },
+      { name: 'Runway', emoji: '✨', color: '#34d399', model: null, free: false, why_best: 'Adds advanced AI effects when needed.', description: 'Adds AI-powered background cleanup, generative fills, and style effects for premium-looking output.', steps: ['Import your clip', 'Apply AI effects', 'Render final version'], url: 'https://runwayml.com' },
+    ],
+  },
+  {
+    id: 'audio',
+    keywords: ['audio', 'voice', 'podcast', 'audiobook', 'narration', 'speech', 'tts'],
+    summary: 'audio production',
+    tools: [
+      { name: 'ElevenLabs', emoji: '🔊', color: '#6ee7f7', model: null, free: false, why_best: 'Most natural AI voices for long narration.', description: 'High-quality voice generation for narrations, audiobooks, and polished spoken content.', steps: ['Paste or upload script', 'Pick voice style', 'Generate and download audio'], url: 'https://elevenlabs.io' },
+      { name: 'Murf', emoji: '🎤', color: '#f97316', model: null, free: false, why_best: 'Beginner-friendly studio controls.', description: 'Strong voiceover workflow with pacing controls and easy project organization.', steps: ['Create new narration project', 'Add script sections', 'Export final audio'], url: 'https://murf.ai' },
+      { name: 'Descript', emoji: '📝', color: '#a78bfa', model: null, free: false, why_best: 'Best editing workflow for spoken content.', description: 'Ideal when you need to edit spoken audio by editing text and clean background noise.', steps: ['Import recording', 'Edit transcript text', 'Export mastered audio'], url: 'https://www.descript.com' },
+      { name: 'Speechify', emoji: '📚', color: '#34d399', model: null, free: true, why_best: 'Quick start and simple interface.', description: 'Easy text-to-speech option for fast conversions with minimal setup.', steps: ['Upload text', 'Select voice', 'Generate and save output'], url: 'https://speechify.com' },
+    ],
+  },
+  {
+    id: 'image',
+    keywords: ['image', 'photo', 'thumbnail', 'picture', 'background', 'product photo', 'design'],
+    summary: 'image and design work',
+    tools: [
+      { name: 'Canva', emoji: '🎨', color: '#6ee7f7', model: null, free: true, why_best: 'Fastest path to polished visuals.', description: 'Great for thumbnails, social posts, and quick design edits with templates.', steps: ['Select template', 'Upload your photos', 'Adjust and export'], url: 'https://www.canva.com' },
+      { name: 'Adobe Express', emoji: '🖼️', color: '#f97316', model: null, free: true, why_best: 'Strong quick-edit tools with reliable quality.', description: 'Useful for background removal, sizing, and branded social graphics.', steps: ['Import image', 'Use quick actions', 'Export for target platform'], url: 'https://www.adobe.com/express' },
+      { name: 'remove.bg', emoji: '✂️', color: '#a78bfa', model: null, free: true, why_best: 'Best single-purpose background remover.', description: 'Excellent one-click background removal for product and profile images.', steps: ['Upload image', 'Download transparent output', 'Place in your design'], url: 'https://www.remove.bg' },
+      { name: 'Pixlr', emoji: '🛠️', color: '#34d399', model: null, free: true, why_best: 'Lightweight browser editor for quick touchups.', description: 'Simple online editor for retouching, filters, and resizing without heavy software.', steps: ['Open image in editor', 'Apply touchups', 'Export final file'], url: 'https://pixlr.com' },
+    ],
+  },
+  {
+    id: 'build',
+    keywords: ['app', 'website', 'code', 'software', 'saas', 'tool', 'build'],
+    summary: 'app and product building',
+    tools: [
+      { name: 'Replit', emoji: '🧪', color: '#6ee7f7', model: null, free: true, why_best: 'Fastest no-setup coding environment.', description: 'Good for quickly prototyping ideas in-browser without local setup.', steps: ['Start a new project', 'Build MVP features', 'Share test link'], url: 'https://replit.com' },
+      { name: 'Cursor', emoji: '💻', color: '#f97316', model: null, free: false, why_best: 'Strong AI-assisted coding workflow.', description: 'Excellent for shipping features quickly with AI pair-programming assistance.', steps: ['Open project codebase', 'Generate and refine features', 'Run and test changes'], url: 'https://www.cursor.com' },
+      { name: 'Vercel', emoji: '🚀', color: '#a78bfa', model: null, free: true, why_best: 'Simple deployment workflow for web apps.', description: 'Best for instant previews and stable production deploys for frontend projects.', steps: ['Connect repository', 'Deploy preview', 'Promote to production'], url: 'https://vercel.com' },
+      { name: 'Supabase', emoji: '🗄️', color: '#34d399', model: null, free: true, why_best: 'Quick backend for auth and database.', description: 'Provides managed database, auth, and APIs so you can move faster on app features.', steps: ['Create project', 'Define tables/auth', 'Connect app to backend'], url: 'https://supabase.com' },
+    ],
+  },
+];
+
+function buildEmergencyRecommendation(goal) {
+  const normalizedGoal = goal.toLowerCase();
+  const toolkit = EMERGENCY_TOOLKITS.find((candidate) => (
+    candidate.keywords.some((keyword) => normalizedGoal.includes(keyword))
+  )) ?? EMERGENCY_TOOLKITS[0];
+
+  return {
+    summary: `Live web search took too long, so here is a fast goal-specific starter stack for ${toolkit.summary}. Start with ${toolkit.tools[0].name} first, then use the alternatives if you need extra control or lower cost.`,
+    tools: toolkit.tools.map((tool, index) => ({
+      ...tool,
+      rank: index + 1,
+    })),
+  };
+}
+
 async function fetchRecommendations(goal, apiKey, signal, { useWebSearch, maxTokens }) {
   const requestBody = {
     model: 'claude-sonnet-4-20250514',
@@ -447,21 +509,37 @@ const server = createServer(async (req, res) => {
           if (!isRetriableWebSearchFailure(err)) throw err;
 
           const secondBudget = Math.min(FALLBACK_TIMEOUT_MS, remainingTime());
-          if (secondBudget < 2_000) throw err;
+          try {
+            if (secondBudget < 2_000) throw err;
 
-          console.warn(`[${requestId}] web_search_retry: retrying without web search`);
-          result = await runFetchAttempt(goal, apiKey, {
-            useWebSearch: false,
-            maxTokens: Math.min(ANTHROPIC_MAX_TOKENS, FALLBACK_MAX_TOKENS),
-          }, secondBudget);
-          res.setHeader('X-Recommendation-Mode', 'fallback-no-web-search');
+            console.warn(`[${requestId}] web_search_retry: retrying without web search`);
+            result = await runFetchAttempt(goal, apiKey, {
+              useWebSearch: false,
+              maxTokens: Math.min(ANTHROPIC_MAX_TOKENS, FALLBACK_MAX_TOKENS),
+            }, secondBudget);
+            res.setHeader('X-Recommendation-Mode', 'fallback-no-web-search');
+          } catch (fallbackErr) {
+            if (!isRetriableWebSearchFailure(fallbackErr)) throw fallbackErr;
+
+            console.error(`[${requestId}] emergency_local_fallback after upstream timeouts`);
+            result = buildEmergencyRecommendation(goal);
+            res.setHeader('X-Recommendation-Mode', 'emergency-local-fallback');
+          }
         }
       } else {
         const budget = Math.min(NON_SEARCH_TIMEOUT_MS, remainingTime());
-        result = await runFetchAttempt(goal, apiKey, {
-          useWebSearch: false,
-          maxTokens: ANTHROPIC_MAX_TOKENS,
-        }, budget);
+        try {
+          result = await runFetchAttempt(goal, apiKey, {
+            useWebSearch: false,
+            maxTokens: ANTHROPIC_MAX_TOKENS,
+          }, budget);
+        } catch (err) {
+          if (!isRetriableWebSearchFailure(err)) throw err;
+
+          console.error(`[${requestId}] emergency_local_fallback after upstream timeout`);
+          result = buildEmergencyRecommendation(goal);
+          res.setHeader('X-Recommendation-Mode', 'emergency-local-fallback');
+        }
       }
 
       return writeJson(res, 200, result);
